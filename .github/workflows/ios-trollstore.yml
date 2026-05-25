@@ -1,0 +1,63 @@
+name: Build IPA for TrollStore
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: cd mobile && npm install
+
+      - name: Install Expo CLI
+        run: npm install -g @expo/cli
+
+      - name: Prebuild iOS
+        run: cd mobile && npx expo prebuild --platform ios --clean --no-install
+        env:
+          EXPO_NO_TELEMETRY: 1
+
+      - name: Install CocoaPods
+        run: cd mobile/ios && pod install --repo-update
+
+      - name: Build iOS unsigned
+        run: |
+          xcodebuild archive \
+            -workspace mobile/ios/mobile.xcworkspace \
+            -scheme mobile \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/mobile.xcarchive \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" | xcpretty
+
+      - name: Package IPA
+        run: |
+          APP=$(find $RUNNER_TEMP/mobile.xcarchive/Products/Applications -name "*.app" | head -1)
+          mkdir -p $RUNNER_TEMP/ipa/Payload
+          cp -r "$APP" $RUNNER_TEMP/ipa/Payload/
+          brew install ldid 2>/dev/null || true
+          ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename $APP)/$(basename ${APP%.app})" 2>/dev/null || true
+          cd $RUNNER_TEMP/ipa && zip -r $RUNNER_TEMP/SMSRadar.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SMSRadar-IPA
+          path: ${{ runner.temp }}/SMSRadar.ipa
+          retention-days: 7
