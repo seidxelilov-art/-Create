@@ -42,23 +42,20 @@ jobs:
         run: |
           WORKSPACE=$(find mobile/ios -maxdepth 1 -name "*.xcworkspace" -type d | head -1)
           echo "WORKSPACE=$WORKSPACE" >> $GITHUB_ENV
-          echo "Found workspace: $WORKSPACE"
-          echo "iOS folder contents:"
-          ls -la mobile/ios/
-          echo "=== Available schemes ==="
-          xcodebuild -workspace "$WORKSPACE" -list 2>&1
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
+            | awk '/Schemes:/{found=1;next} found{gsub(/^[ \t]+/,"",$0); if(length($0)>0){print; exit}}')
+          echo "SCHEME=$SCHEME" >> $GITHUB_ENV
+          echo "Workspace: $WORKSPACE  |  Scheme: $SCHEME"
 
       - name: Build iOS unsigned
         run: |
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
-            | awk '/Schemes:/{found=1;next} found{gsub(/^[ \t]+/,"",$0); if(length($0)>0){print; exit}}')
           echo "Building: workspace=$WORKSPACE  scheme=$SCHEME"
-          xcodebuild archive \
+          xcodebuild build \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -archivePath "$RUNNER_TEMP/SMSRadar.xcarchive" \
-            -destination "generic/platform=iOS" \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -67,20 +64,29 @@ jobs:
           BUILD_EXIT=$?
           tail -80 /tmp/xcodebuild.log
           if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== ERRORS ==="
+            echo "=== BUILD ERRORS ==="
             grep "error:" /tmp/xcodebuild.log | head -30
             exit $BUILD_EXIT
           fi
+          echo "=== Looking for .app ==="
+          find "$RUNNER_TEMP/DerivedData" -name "*.app" -not -path "*simulator*" 2>/dev/null | head -5
 
       - name: Package IPA
         run: |
-          APP=$(find "$RUNNER_TEMP/SMSRadar.xcarchive/Products/Applications" -name "*.app" -maxdepth 1 | head -1)
+          APP=$(find "$RUNNER_TEMP/DerivedData" -name "*.app" \
+            -not -path "*simulator*" -not -path "*.app/*" | head -1)
           echo "App bundle: $APP"
+          if [ -z "$APP" ]; then
+            echo "ERROR: .app not found in DerivedData"
+            find "$RUNNER_TEMP/DerivedData" -name "*.app" | head -10
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -r "$APP" "$RUNNER_TEMP/ipa/Payload/"
           brew install ldid 2>/dev/null || true
           BINARY_NAME=$(basename "${APP%.app}")
-          ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$BINARY_NAME" 2>/dev/null || echo "ldid skipped"
+          ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$BINARY_NAME" 2>/dev/null \
+            || echo "ldid skipped"
           cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
           echo "IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
 
