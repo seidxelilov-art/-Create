@@ -43,8 +43,7 @@ jobs:
           WORKSPACE=$(find mobile/ios -maxdepth 1 -name "*.xcworkspace" -type d | head -1)
           BUILD_DIR="$RUNNER_TEMP/build"
           mkdir -p "$BUILD_DIR"
-          echo "Workspace: $WORKSPACE"
-          echo "Building scheme: SMSRadar"
+          echo "Workspace: $WORKSPACE | Scheme: SMSRadar"
           xcodebuild build \
             -workspace "$WORKSPACE" \
             -scheme "SMSRadar" \
@@ -59,14 +58,19 @@ jobs:
             DEVELOPMENT_TEAM="" \
             > /tmp/xcodebuild.log 2>&1
           BUILD_EXIT=$?
-          tail -80 /tmp/xcodebuild.log
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== BUILD ERRORS ==="
-            grep "error:" /tmp/xcodebuild.log | grep -v "^#" | head -30
-            exit $BUILD_EXIT
-          fi
-          echo "=== Build dir ==="
-          ls -la "$BUILD_DIR/" | head -20
+          echo "=== ALL ERRORS ==="
+          grep -n "error:" /tmp/xcodebuild.log | grep -v "^#" | grep -v "note:" | head -50
+          echo "=== LAST 100 LINES ==="
+          tail -100 /tmp/xcodebuild.log
+          exit $BUILD_EXIT
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: /tmp/xcodebuild.log
+          retention-days: 3
 
       - name: Package IPA
         run: |
@@ -76,12 +80,8 @@ jobs:
             APP=$(find "$RUNNER_TEMP" -type d -name "*.app" 2>/dev/null \
               | grep -v "iphonesimulator" | grep -v "\.app/" | head -1)
           fi
-          echo "App bundle: $APP"
-          if [ -z "$APP" ]; then
-            echo "FATAL: No .app found"
-            find "$RUNNER_TEMP" -name "*.app" 2>/dev/null | head -20
-            exit 1
-          fi
+          echo "App: $APP"
+          if [ -z "$APP" ]; then exit 1; fi
           brew install ldid 2>/dev/null || true
           find "$APP" -type f -perm +0111 | while read bin; do
             ldid -S "$bin" 2>/dev/null || true
@@ -89,7 +89,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -r "$APP" "$RUNNER_TEMP/ipa/Payload/"
           cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
-          echo "SUCCESS — IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
+          echo "IPA: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
