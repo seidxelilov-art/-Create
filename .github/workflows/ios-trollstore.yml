@@ -63,33 +63,46 @@ jobs:
             DEVELOPMENT_TEAM="" \
             > /tmp/xcodebuild.log 2>&1
           BUILD_EXIT=$?
-          tail -80 /tmp/xcodebuild.log
+          tail -60 /tmp/xcodebuild.log
           if [ $BUILD_EXIT -ne 0 ]; then
             echo "=== BUILD ERRORS ==="
             grep "error:" /tmp/xcodebuild.log | head -30
             exit $BUILD_EXIT
           fi
-          echo "=== Found .app files ==="
-          find "$RUNNER_TEMP/DerivedData" -name "*.app" 2>/dev/null | head -10
 
-      - name: Package IPA
+      - name: Find and package IPA
         run: |
-          APP=$(find "$RUNNER_TEMP/DerivedData" -name "*.app" \
-            -not -path "*simulator*" -not -path "*.app/*" | head -1)
-          echo "App bundle: $APP"
+          echo "=== DerivedData/Build/Products contents ==="
+          ls -la "$RUNNER_TEMP/DerivedData/Build/Products/" 2>/dev/null || echo "No Products dir"
+          ls -la "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/" 2>/dev/null || echo "No Release-iphoneos dir"
+
+          echo "=== All .app bundles in DerivedData ==="
+          find "$RUNNER_TEMP/DerivedData" -type d -name "*.app" 2>/dev/null
+
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos" \
+            -maxdepth 1 -type d -name "*.app" 2>/dev/null | head -1)
+
           if [ -z "$APP" ]; then
-            echo "ERROR: .app not found — listing all .app paths:"
-            find "$RUNNER_TEMP/DerivedData" -name "*.app" | head -20
+            APP=$(find "$RUNNER_TEMP/DerivedData" -type d -name "*.app" 2>/dev/null | \
+              grep -v ".app/" | grep -v "iphonesimulator" | head -1)
+          fi
+
+          echo "Using app: $APP"
+          if [ -z "$APP" ]; then
+            echo "FATAL: Could not find .app bundle anywhere"
             exit 1
           fi
+
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -r "$APP" "$RUNNER_TEMP/ipa/Payload/"
+
           brew install ldid 2>/dev/null || true
           BINARY_NAME=$(basename "${APP%.app}")
           ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$BINARY_NAME" 2>/dev/null \
             || echo "ldid re-sign skipped"
+
           cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
-          echo "IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
+          echo "SUCCESS — IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
