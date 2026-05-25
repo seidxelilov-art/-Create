@@ -42,65 +42,75 @@ jobs:
         run: |
           WORKSPACE=$(find mobile/ios -maxdepth 1 -name "*.xcworkspace" -type d | head -1)
           echo "WORKSPACE=$WORKSPACE" >> $GITHUB_ENV
+          echo "Found workspace: $WORKSPACE"
+          echo "=== All schemes ==="
+          xcodebuild -workspace "$WORKSPACE" -list 2>&1
           SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
-            | awk '/Schemes:/{found=1;next} found{gsub(/^[ \t]+/,"",$0); if(length($0)>0){print; exit}}')
+            | awk '/Schemes:/{found=1;next} found && /^[[:space:]]+[^[:space:]]/{
+                gsub(/^[[:space:]]+/,"",$0); gsub(/[[:space:]]+$/,"",$0); print}' \
+            | grep -v "Tests" | head -1)
+          if [ -z "$SCHEME" ]; then
+            SCHEME="SMSRadar"
+          fi
           echo "SCHEME=$SCHEME" >> $GITHUB_ENV
-          echo "Workspace: $WORKSPACE  |  Scheme: $SCHEME"
+          echo "Using scheme: $SCHEME"
 
-      - name: Build iOS (ad-hoc signed)
+      - name: Setup keychain for signing
         run: |
-          echo "Building: workspace=$WORKSPACE  scheme=$SCHEME"
+          security create-keychain -p "github" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "github" build.keychain
+          security set-keychain-settings -t 3600 -l build.keychain
+
+      - name: Build iOS unsigned
+        run: |
+          BUILD_DIR="$RUNNER_TEMP/build"
+          mkdir -p "$BUILD_DIR"
+          echo "Building scheme=$SCHEME workspace=$WORKSPACE"
           xcodebuild build \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
             > /tmp/xcodebuild.log 2>&1
           BUILD_EXIT=$?
-          tail -60 /tmp/xcodebuild.log
+          echo "=== Build log (last 80 lines) ==="
+          tail -80 /tmp/xcodebuild.log
           if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== BUILD ERRORS ==="
-            grep "error:" /tmp/xcodebuild.log | head -30
+            echo "=== ERRORS ==="
+            grep "error:" /tmp/xcodebuild.log | grep -v "^#" | head -30
             exit $BUILD_EXIT
           fi
+          echo "=== Build dir contents ==="
+          ls -la "$BUILD_DIR/" | head -30
 
-      - name: Find and package IPA
+      - name: Package IPA
         run: |
-          echo "=== DerivedData/Build/Products contents ==="
-          ls -la "$RUNNER_TEMP/DerivedData/Build/Products/" 2>/dev/null || echo "No Products dir"
-          ls -la "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/" 2>/dev/null || echo "No Release-iphoneos dir"
-
-          echo "=== All .app bundles in DerivedData ==="
-          find "$RUNNER_TEMP/DerivedData" -type d -name "*.app" 2>/dev/null
-
-          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos" \
-            -maxdepth 1 -type d -name "*.app" 2>/dev/null | head -1)
-
+          BUILD_DIR="$RUNNER_TEMP/build"
+          APP=$(find "$BUILD_DIR" -maxdepth 1 -type d -name "*.app" 2>/dev/null | head -1)
           if [ -z "$APP" ]; then
-            APP=$(find "$RUNNER_TEMP/DerivedData" -type d -name "*.app" 2>/dev/null | \
-              grep -v ".app/" | grep -v "iphonesimulator" | head -1)
+            APP=$(find "$RUNNER_TEMP" -type d -name "*.app" 2>/dev/null \
+              | grep -v "iphonesimulator" | grep -v "\.app/" | head -1)
           fi
-
-          echo "Using app: $APP"
+          echo "App bundle: $APP"
           if [ -z "$APP" ]; then
-            echo "FATAL: Could not find .app bundle anywhere"
+            echo "FATAL: No .app found. Full list:"
+            find "$RUNNER_TEMP" -name "*.app" 2>/dev/null | head -20
             exit 1
           fi
-
+          brew install ldid 2>/dev/null || true
+          find "$APP" -type f -perm +0111 | while read bin; do
+            ldid -S "$bin" 2>/dev/null || true
+          done
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -r "$APP" "$RUNNER_TEMP/ipa/Payload/"
-
-          brew install ldid 2>/dev/null || true
-          BINARY_NAME=$(basename "${APP%.app}")
-          ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$BINARY_NAME" 2>/dev/null \
-            || echo "ldid re-sign skipped"
-
           cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
           echo "SUCCESS — IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
 
