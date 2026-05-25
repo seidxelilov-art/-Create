@@ -47,7 +47,7 @@ jobs:
           echo "SCHEME=$SCHEME" >> $GITHUB_ENV
           echo "Workspace: $WORKSPACE  |  Scheme: $SCHEME"
 
-      - name: Build iOS unsigned
+      - name: Build iOS (ad-hoc signed)
         run: |
           echo "Building: workspace=$WORKSPACE  scheme=$SCHEME"
           xcodebuild build \
@@ -56,9 +56,10 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="" \
             > /tmp/xcodebuild.log 2>&1
           BUILD_EXIT=$?
@@ -68,8 +69,8 @@ jobs:
             grep "error:" /tmp/xcodebuild.log | head -30
             exit $BUILD_EXIT
           fi
-          echo "=== Looking for .app ==="
-          find "$RUNNER_TEMP/DerivedData" -name "*.app" -not -path "*simulator*" 2>/dev/null | head -5
+          echo "=== Found .app files ==="
+          find "$RUNNER_TEMP/DerivedData" -name "*.app" 2>/dev/null | head -10
 
       - name: Package IPA
         run: |
@@ -77,8 +78,8 @@ jobs:
             -not -path "*simulator*" -not -path "*.app/*" | head -1)
           echo "App bundle: $APP"
           if [ -z "$APP" ]; then
-            echo "ERROR: .app not found in DerivedData"
-            find "$RUNNER_TEMP/DerivedData" -name "*.app" | head -10
+            echo "ERROR: .app not found — listing all .app paths:"
+            find "$RUNNER_TEMP/DerivedData" -name "*.app" | head -20
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
@@ -86,7 +87,7 @@ jobs:
           brew install ldid 2>/dev/null || true
           BINARY_NAME=$(basename "${APP%.app}")
           ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$BINARY_NAME" 2>/dev/null \
-            || echo "ldid skipped"
+            || echo "ldid re-sign skipped"
           cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
           echo "IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
 
