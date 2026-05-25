@@ -35,6 +35,16 @@ jobs:
         env:
           EXPO_NO_TELEMETRY: 1
 
+      - name: Disable code signing in project
+        run: |
+          PBXPROJ="mobile/ios/SMSRadar.xcodeproj/project.pbxproj"
+          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' "$PBXPROJ"
+          sed -i '' 's/CODE_SIGN_IDENTITY = "Apple Development";/CODE_SIGN_IDENTITY = "";/g' "$PBXPROJ"
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES;/CODE_SIGNING_REQUIRED = NO;/g' "$PBXPROJ"
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES;/CODE_SIGNING_ALLOWED = NO;/g' "$PBXPROJ"
+          sed -i '' 's/DEVELOPMENT_TEAM = [A-Z0-9]*;/DEVELOPMENT_TEAM = "";/g' "$PBXPROJ"
+          echo "Patch done"
+
       - name: Install CocoaPods
         run: cd mobile/ios && pod install --repo-update
 
@@ -56,12 +66,12 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             > /tmp/xcodebuild.log 2>&1
           BUILD_EXIT=$?
-          echo "=== ALL ERRORS ==="
-          grep -n "error:" /tmp/xcodebuild.log | grep -v "^#" | grep -v "note:" | head -50
-          echo "=== LAST 100 LINES ==="
-          tail -100 /tmp/xcodebuild.log
+          grep "error:" /tmp/xcodebuild.log | grep -v "^#" | head -40
+          tail -40 /tmp/xcodebuild.log
           exit $BUILD_EXIT
 
       - name: Upload build log
