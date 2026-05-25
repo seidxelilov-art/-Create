@@ -38,21 +38,19 @@ jobs:
       - name: Install CocoaPods
         run: cd mobile/ios && pod install --repo-update
 
-      - name: List workspace and schemes
+      - name: Detect workspace and scheme
         run: |
-          echo "=== iOS folder contents ==="
-          ls mobile/ios/
-          echo "=== Schemes ==="
-          WORKSPACE=$(ls mobile/ios/*.xcworkspace 2>/dev/null | head -1)
+          WORKSPACE=$(ls mobile/ios/*.xcworkspace | head -1)
+          echo "WORKSPACE=$WORKSPACE" >> $GITHUB_ENV
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
+            | awk '/Schemes:/{found=1;next} found && /^[[:space:]]+[^[:space:]]/{gsub(/^[[:space:]]+/,"",$0); print; exit}')
+          echo "SCHEME=$SCHEME" >> $GITHUB_ENV
           echo "Workspace: $WORKSPACE"
-          xcodebuild -workspace "$WORKSPACE" -list 2>&1 || true
+          echo "Scheme: $SCHEME"
 
       - name: Build iOS unsigned
         run: |
-          WORKSPACE=$(ls mobile/ios/*.xcworkspace | head -1)
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
-            | awk '/Schemes:/{found=1;next} found && /^[[:space:]]+[^[:space:]]/{gsub(/^[[:space:]]+/,"",$0); print; exit}')
-          echo "Workspace=$WORKSPACE  Scheme=$SCHEME"
+          echo "Building: workspace=$WORKSPACE scheme=$SCHEME"
           xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -63,15 +61,15 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
-            2>&1 | grep -E "error:|warning:|BUILD|FAILED|Compiling|Linking|note:" | tail -80
-          echo "--- Exit code: $?"
-
-      - name: Check archive
-        run: |
-          echo "Archive path: $RUNNER_TEMP/SMSRadar.xcarchive"
-          ls "$RUNNER_TEMP/" || true
-          ls "$RUNNER_TEMP/SMSRadar.xcarchive/" || (echo "Archive NOT created!"; exit 1)
-          ls "$RUNNER_TEMP/SMSRadar.xcarchive/Products/Applications/" || true
+            > /tmp/xcodebuild.log 2>&1
+          BUILD_EXIT=$?
+          echo "=== Last 80 lines of build log ==="
+          tail -80 /tmp/xcodebuild.log
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "=== BUILD ERRORS ==="
+            grep "error:" /tmp/xcodebuild.log | head -30
+            exit $BUILD_EXIT
+          fi
 
       - name: Package IPA
         run: |
