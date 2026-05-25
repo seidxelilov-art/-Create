@@ -38,27 +38,43 @@ jobs:
       - name: Install CocoaPods
         run: cd mobile/ios && pod install --repo-update
 
+      - name: Show available schemes
+        run: |
+          xcodebuild -workspace mobile/ios/SMSRadar.xcworkspace -list 2>/dev/null || \
+          xcodebuild -workspace mobile/ios/mobile.xcworkspace -list 2>/dev/null || \
+          ls mobile/ios/*.xcworkspace
+
       - name: Build iOS unsigned
         run: |
+          set -o pipefail
+          WORKSPACE=$(ls mobile/ios/*.xcworkspace | head -1)
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | grep -A5 "Schemes:" | grep -v "Schemes:" | head -1 | tr -d ' ')
+          echo "Using workspace: $WORKSPACE, scheme: $SCHEME"
           xcodebuild archive \
-            -workspace mobile/ios/mobile.xcworkspace \
-            -scheme mobile \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
             -configuration Release \
-            -archivePath $RUNNER_TEMP/mobile.xcarchive \
+            -archivePath $RUNNER_TEMP/SMSRadar.xcarchive \
             -destination "generic/platform=iOS" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM="" | xcpretty
+            DEVELOPMENT_TEAM="" 2>&1 | tail -100
 
       - name: Package IPA
         run: |
-          APP=$(find $RUNNER_TEMP/mobile.xcarchive/Products/Applications -name "*.app" | head -1)
+          set -e
+          ARCHIVE=$RUNNER_TEMP/SMSRadar.xcarchive
+          echo "Archive contents:"
+          ls "$ARCHIVE/Products/Applications/" || (echo "No Applications folder!"; ls "$ARCHIVE/Products/" 2>/dev/null || ls "$ARCHIVE/" 2>/dev/null; exit 1)
+          APP=$(find "$ARCHIVE/Products/Applications" -name "*.app" | head -1)
+          echo "App: $APP"
           mkdir -p $RUNNER_TEMP/ipa/Payload
           cp -r "$APP" $RUNNER_TEMP/ipa/Payload/
           brew install ldid 2>/dev/null || true
           ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename $APP)/$(basename ${APP%.app})" 2>/dev/null || true
           cd $RUNNER_TEMP/ipa && zip -r $RUNNER_TEMP/SMSRadar.ipa Payload
+          echo "IPA size: $(ls -lh $RUNNER_TEMP/SMSRadar.ipa)"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
