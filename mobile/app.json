@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "SMSRadar",
+    "slug": "mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mobile",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.smsradar.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Cərimə üçün şəkil və video əlavə etmək üçün qalerey icazəsi lazımdır.",
+        "NSPhotoLibraryAddUsageDescription": "Şəkil saxlamaq üçün qalereya icazəsi lazımdır.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.smsradar.app",
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cərimə üçün şəkil və video əlavə etmək üçün qalerey icazəsi lazımdır."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "549d9442-2a0e-458e-bce9-66dc68ea669f"
+      }
+    },
+    "owner": "seid4444"
+  }
+}
