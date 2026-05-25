@@ -40,17 +40,19 @@ jobs:
 
       - name: Detect workspace and scheme
         run: |
-          WORKSPACE=$(ls mobile/ios/*.xcworkspace | head -1)
+          WORKSPACE=$(find mobile/ios -maxdepth 1 -name "*.xcworkspace" -type d | head -1)
           echo "WORKSPACE=$WORKSPACE" >> $GITHUB_ENV
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
-            | awk '/Schemes:/{found=1;next} found && /^[[:space:]]+[^[:space:]]/{gsub(/^[[:space:]]+/,"",$0); print; exit}')
-          echo "SCHEME=$SCHEME" >> $GITHUB_ENV
-          echo "Workspace: $WORKSPACE"
-          echo "Scheme: $SCHEME"
+          echo "Found workspace: $WORKSPACE"
+          echo "iOS folder contents:"
+          ls -la mobile/ios/
+          echo "=== Available schemes ==="
+          xcodebuild -workspace "$WORKSPACE" -list 2>&1
 
       - name: Build iOS unsigned
         run: |
-          echo "Building: workspace=$WORKSPACE scheme=$SCHEME"
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
+            | awk '/Schemes:/{found=1;next} found{gsub(/^[ \t]+/,"",$0); if(length($0)>0){print; exit}}')
+          echo "Building: workspace=$WORKSPACE  scheme=$SCHEME"
           xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -63,23 +65,22 @@ jobs:
             DEVELOPMENT_TEAM="" \
             > /tmp/xcodebuild.log 2>&1
           BUILD_EXIT=$?
-          echo "=== Last 80 lines of build log ==="
           tail -80 /tmp/xcodebuild.log
           if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== BUILD ERRORS ==="
+            echo "=== ERRORS ==="
             grep "error:" /tmp/xcodebuild.log | head -30
             exit $BUILD_EXIT
           fi
 
       - name: Package IPA
         run: |
-          APP=$(find "$RUNNER_TEMP/SMSRadar.xcarchive/Products/Applications" -name "*.app" | head -1)
+          APP=$(find "$RUNNER_TEMP/SMSRadar.xcarchive/Products/Applications" -name "*.app" -maxdepth 1 | head -1)
           echo "App bundle: $APP"
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -r "$APP" "$RUNNER_TEMP/ipa/Payload/"
           brew install ldid 2>/dev/null || true
-          BINARY="$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$(basename "${APP%.app}")"
-          ldid -S "$BINARY" 2>/dev/null || echo "ldid sign skipped"
+          BINARY_NAME=$(basename "${APP%.app}")
+          ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$BINARY_NAME" 2>/dev/null || echo "ldid skipped"
           cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
           echo "IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
 
