@@ -38,43 +38,52 @@ jobs:
       - name: Install CocoaPods
         run: cd mobile/ios && pod install --repo-update
 
-      - name: Show available schemes
+      - name: List workspace and schemes
         run: |
-          xcodebuild -workspace mobile/ios/SMSRadar.xcworkspace -list 2>/dev/null || \
-          xcodebuild -workspace mobile/ios/mobile.xcworkspace -list 2>/dev/null || \
-          ls mobile/ios/*.xcworkspace
+          echo "=== iOS folder contents ==="
+          ls mobile/ios/
+          echo "=== Schemes ==="
+          WORKSPACE=$(ls mobile/ios/*.xcworkspace 2>/dev/null | head -1)
+          echo "Workspace: $WORKSPACE"
+          xcodebuild -workspace "$WORKSPACE" -list 2>&1 || true
 
       - name: Build iOS unsigned
         run: |
-          set -o pipefail
           WORKSPACE=$(ls mobile/ios/*.xcworkspace | head -1)
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | grep -A5 "Schemes:" | grep -v "Schemes:" | head -1 | tr -d ' ')
-          echo "Using workspace: $WORKSPACE, scheme: $SCHEME"
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null \
+            | awk '/Schemes:/{found=1;next} found && /^[[:space:]]+[^[:space:]]/{gsub(/^[[:space:]]+/,"",$0); print; exit}')
+          echo "Workspace=$WORKSPACE  Scheme=$SCHEME"
           xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -archivePath $RUNNER_TEMP/SMSRadar.xcarchive \
+            -archivePath "$RUNNER_TEMP/SMSRadar.xcarchive" \
             -destination "generic/platform=iOS" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM="" 2>&1 | tail -100
+            DEVELOPMENT_TEAM="" \
+            2>&1 | grep -E "error:|warning:|BUILD|FAILED|Compiling|Linking|note:" | tail -80
+          echo "--- Exit code: $?"
+
+      - name: Check archive
+        run: |
+          echo "Archive path: $RUNNER_TEMP/SMSRadar.xcarchive"
+          ls "$RUNNER_TEMP/" || true
+          ls "$RUNNER_TEMP/SMSRadar.xcarchive/" || (echo "Archive NOT created!"; exit 1)
+          ls "$RUNNER_TEMP/SMSRadar.xcarchive/Products/Applications/" || true
 
       - name: Package IPA
         run: |
-          set -e
-          ARCHIVE=$RUNNER_TEMP/SMSRadar.xcarchive
-          echo "Archive contents:"
-          ls "$ARCHIVE/Products/Applications/" || (echo "No Applications folder!"; ls "$ARCHIVE/Products/" 2>/dev/null || ls "$ARCHIVE/" 2>/dev/null; exit 1)
-          APP=$(find "$ARCHIVE/Products/Applications" -name "*.app" | head -1)
-          echo "App: $APP"
-          mkdir -p $RUNNER_TEMP/ipa/Payload
-          cp -r "$APP" $RUNNER_TEMP/ipa/Payload/
+          APP=$(find "$RUNNER_TEMP/SMSRadar.xcarchive/Products/Applications" -name "*.app" | head -1)
+          echo "App bundle: $APP"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -r "$APP" "$RUNNER_TEMP/ipa/Payload/"
           brew install ldid 2>/dev/null || true
-          ldid -S "$RUNNER_TEMP/ipa/Payload/$(basename $APP)/$(basename ${APP%.app})" 2>/dev/null || true
-          cd $RUNNER_TEMP/ipa && zip -r $RUNNER_TEMP/SMSRadar.ipa Payload
-          echo "IPA size: $(ls -lh $RUNNER_TEMP/SMSRadar.ipa)"
+          BINARY="$RUNNER_TEMP/ipa/Payload/$(basename "$APP")/$(basename "${APP%.app}")"
+          ldid -S "$BINARY" 2>/dev/null || echo "ldid sign skipped"
+          cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
+          echo "IPA size: $(ls -lh "$RUNNER_TEMP/SMSRadar.ipa")"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
