@@ -88,19 +88,19 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             NODE_BINARY="$(which node)" \
             SKIP_BUNDLING=YES \
-            > /tmp/xcodebuild.log 2>&1
-          BUILD_EXIT=$?
-          echo "=== xcodebuild exit: $BUILD_EXIT ==="
-          grep -E "error:|FAILED" /tmp/xcodebuild.log | grep -v "^#" | head -40 || true
+            2>&1 | tee /tmp/xcodebuild.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo ""
+          echo "=== xcodebuild exit code: $BUILD_EXIT ==="
+          if [ "$BUILD_EXIT" -ne 0 ]; then
+            echo ""
+            echo "====== ERRORS ======"
+            grep -E "^.*error:.*$" /tmp/xcodebuild.log | grep -v "^#" | head -50 || true
+            echo ""
+            echo "====== LAST 60 LINES OF LOG ======"
+            tail -60 /tmp/xcodebuild.log
+          fi
           exit $BUILD_EXIT
-
-      - name: Show build errors (if any)
-        if: failure()
-        run: |
-          echo "====== LAST 100 LINES OF BUILD LOG ======"
-          tail -100 /tmp/xcodebuild.log
-          echo "====== ALL ERRORS ======"
-          grep "error:" /tmp/xcodebuild.log | grep -v "^#" | head -60 || true
 
       - name: Upload build log
         if: always()
