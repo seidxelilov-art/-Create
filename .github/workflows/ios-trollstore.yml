@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -39,6 +39,91 @@ jobs:
         env:
           EXPO_NO_TELEMETRY: 1
 
+      - name: Patch Expo Swift modules for Xcode 16
+        run: |
+          MOD_ROOT="mobile/node_modules"
+
+          SYS_UI="$MOD_ROOT/expo-system-ui/ios/ExpoSystemUI/ExpoSystemUIModule.swift"
+          if [ -f "$SYS_UI" ]; then
+            cat > "$SYS_UI" << 'SWIFT'
+import ExpoModulesCore
+
+public class ExpoSystemUIModule: Module {
+  public func definition() -> ModuleDefinition {
+    Name("ExpoSystemUI")
+
+    AsyncFunction("setBackgroundColorAsync") { (_: String?) async in }
+    AsyncFunction("getBackgroundColorAsync") { () async -> String? in return nil }
+    AsyncFunction("setStatusBarHidden") { (_: Bool, _: String?) async in }
+    AsyncFunction("setStatusBarStyle") { (_: String) async in }
+    AsyncFunction("setStatusBarBackgroundColorAsync") { (_: String?) async in }
+    AsyncFunction("setNavigationBarHidden") { (_: Bool) async in }
+    AsyncFunction("setNavigationBarBackgroundColorAsync") { (_: String?) async in }
+  }
+}
+SWIFT
+            echo "Patched ExpoSystemUIModule.swift"
+          fi
+
+          LINKING_DIR="$MOD_ROOT/expo-linking/ios"
+          LINKING_MOD="$LINKING_DIR/ExpoLinkingModule.swift"
+          if [ -f "$LINKING_MOD" ]; then
+            cat > "$LINKING_MOD" << 'SWIFT'
+import ExpoModulesCore
+
+public class ExpoLinkingModule: Module {
+  public func definition() -> ModuleDefinition {
+    Name("ExpoLinking")
+
+    AsyncFunction("openURL") { (url: String) async throws in
+      guard let u = URL(string: url) else { return }
+      await MainActor.run { UIApplication.shared.open(u) }
+    }
+
+    AsyncFunction("canOpenURL") { (url: String) async -> Bool in
+      guard let u = URL(string: url) else { return false }
+      return await MainActor.run { UIApplication.shared.canOpenURL(u) }
+    }
+
+    Function("getInitialURL") { () -> String? in return nil }
+    Function("getLinkingURL") { () -> String? in return nil }
+
+    Events("onURLReceived")
+  }
+}
+SWIFT
+            echo "Patched ExpoLinkingModule.swift"
+          fi
+
+          LINKING_REG="$LINKING_DIR/ExpoLinkingRegistry.swift"
+          if [ -f "$LINKING_REG" ]; then
+            cat > "$LINKING_REG" << 'SWIFT'
+import Foundation
+
+@objc public class ExpoLinkingRegistry: NSObject {
+  @objc public static let shared = ExpoLinkingRegistry()
+  private override init() { super.init() }
+  @objc public func onNewURL(_ url: URL) {}
+}
+SWIFT
+            echo "Patched ExpoLinkingRegistry.swift"
+          fi
+
+          LINKING_SUB="$LINKING_DIR/LinkingAppDelegateSubscriber.swift"
+          if [ -f "$LINKING_SUB" ]; then
+            cat > "$LINKING_SUB" << 'SWIFT'
+import ExpoModulesCore
+
+public class LinkingAppDelegateSubscriber: ExpoAppDelegateSubscriber {
+  public func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+    ExpoLinkingRegistry.shared.onNewURL(url)
+    return false
+  }
+}
+SWIFT
+            echo "Patched LinkingAppDelegateSubscriber.swift"
+          fi
+
       - name: Disable all code signing
         run: |
           PBXPROJ="mobile/ios/SMSRadar.xcodeproj/project.pbxproj"
@@ -56,8 +141,6 @@ jobs:
 
       - name: Bundle JS manually
         run: |
-          NODE=$(which node)
-          echo "Node binary: $NODE"
           cd mobile
           mkdir -p ios/main.jsbundle
           node_modules/.bin/react-native bundle \
@@ -94,7 +177,6 @@ jobs:
             SKIP_BUNDLING=YES \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
-            CLANG_WARN_DOCUMENTATION_COMMENTS=NO \
             2>&1 | tee /tmp/xcodebuild.log
           BUILD_EXIT=${PIPESTATUS[0]}
           echo ""
@@ -102,13 +184,13 @@ jobs:
           if [ "$BUILD_EXIT" -ne 0 ]; then
             echo ""
             echo "====== SWIFT/CLANG ERRORS ======"
-            grep -E "\.(swift|m|mm|cpp):[0-9]+:[0-9]+: error:" /tmp/xcodebuild.log | head -60 || true
+            grep -E "\.(swift|m|mm|cpp|h):[0-9]+:[0-9]+: error:" /tmp/xcodebuild.log | head -80 || true
             echo ""
-            echo "====== ALL error: LINES ======"
-            grep -E "error:" /tmp/xcodebuild.log | grep -v "^#" | grep -v "note:" | head -60 || true
+            echo "====== FIRST 50 error: LINES ======"
+            grep -n "error:" /tmp/xcodebuild.log | grep -v "note:" | grep -v "^#" | head -50 || true
             echo ""
-            echo "====== LAST 80 LINES OF LOG ======"
-            tail -80 /tmp/xcodebuild.log
+            echo "====== BUILD FAILED SECTION ======"
+            grep -A5 "BUILD FAILED" /tmp/xcodebuild.log | head -40 || true
           fi
           exit $BUILD_EXIT
 
