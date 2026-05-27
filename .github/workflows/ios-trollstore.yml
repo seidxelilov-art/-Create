@@ -92,6 +92,9 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             NODE_BINARY="$(which node)" \
             SKIP_BUNDLING=YES \
+            SWIFT_VERSION=5 \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             2>&1 | tee /tmp/xcodebuild.log
           BUILD_EXIT=${PIPESTATUS[0]}
           echo ""
