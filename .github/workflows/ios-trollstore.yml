@@ -1,75 +1,9 @@
-name: Build IPA for TrollStore
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-          run_install: false
-
-      - name: Install dependencies
-        run: cd mobile && pnpm install --no-frozen-lockfile
-
-      - name: Install Expo CLI
-        run: pnpm install -g @expo/cli
-
-      - name: Prebuild iOS
-        run: cd mobile && npx expo prebuild --platform ios --clean --no-install
-        env:
-          EXPO_NO_TELEMETRY: 1
-
-      - name: Disable all code signing
-        run: |
-          PBXPROJ="mobile/ios/SMSRadar.xcodeproj/project.pbxproj"
-          sed -i '' \
-            -e 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' \
-            -e 's/CODE_SIGN_IDENTITY = "Apple Development";/CODE_SIGN_IDENTITY = "";/g' \
-            -e 's/CODE_SIGN_IDENTITY = iPhone Developer;/CODE_SIGN_IDENTITY = "";/g' \
-            -e 's/CODE_SIGNING_REQUIRED = YES;/CODE_SIGNING_REQUIRED = NO;/g' \
-            -e 's/CODE_SIGNING_ALLOWED = YES;/CODE_SIGNING_ALLOWED = NO;/g' \
-            "$PBXPROJ"
-          grep "CODE_SIGNING_REQUIRED\|CODE_SIGN_IDENTITY" "$PBXPROJ" | head -20
-
-      - name: Install CocoaPods
-        run: cd mobile/ios && pod install --repo-update
-
-      - name: Bundle JS manually
-        run: |
-          cd mobile
-          mkdir -p ios/main.jsbundle
-          node_modules/.bin/react-native bundle \
-            --platform ios \
-            --dev false \
-            --entry-file node_modules/expo-router/entry.js \
-            --bundle-output ios/main.jsbundle \
-            --assets-dest ios \
-            2>&1 | tail -20
-        continue-on-error: true
-
       - name: Build iOS unsigned
         run: |
           WORKSPACE=$(find mobile/ios -maxdepth 1 -name "*.xcworkspace" -type d | head -1)
           BUILD_DIR="$RUNNER_TEMP/build"
           mkdir -p "$BUILD_DIR"
           echo "=== Building: $WORKSPACE ==="
-          set -o pipefail
           xcodebuild build \
             -workspace "$WORKSPACE" \
             -scheme "SMSRadar" \
@@ -87,46 +21,16 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             NODE_BINARY="$(which node)" \
             SKIP_BUNDLING=YES \
-            2>&1 | tee /tmp/xcodebuild.log | \
-            grep -E "^(error:|warning: |.*(Error|error|FAILED|failed|undefined symbol))" | \
-            grep -v "^#" | \
-            head -60
+            > /tmp/xcodebuild.log 2>&1
+          BUILD_EXIT=$?
+          echo "=== xcodebuild exit: $BUILD_EXIT ==="
+          grep -E "error:|FAILED" /tmp/xcodebuild.log | grep -v "^#" | head -40 || true
+          exit $BUILD_EXIT
 
       - name: Show build errors (if any)
         if: failure()
         run: |
-          echo "====== LAST 80 LINES OF BUILD LOG ======"
-          tail -80 /tmp/xcodebuild.log
+          echo "====== LAST 100 LINES OF BUILD LOG ======"
+          tail -100 /tmp/xcodebuild.log
           echo "====== ALL ERRORS ======"
-          grep "error:" /tmp/xcodebuild.log | grep -v "^#" | head -50
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcodebuild-log
-          path: /tmp/xcodebuild.log
-          retention-days: 3
-
-      - name: Package IPA
-        run: |
-          BUILD_DIR="$RUNNER_TEMP/build"
-          APP=$(find "$BUILD_DIR" -maxdepth 1 -type d -name "*.app" 2>/dev/null | head -1)
-          [ -z "$APP" ] && APP=$(find "$RUNNER_TEMP" -type d -name "*.app" 2>/dev/null | grep -v "\.app/" | head -1)
-          echo "Found app: $APP"
-          [ -z "$APP" ] && { echo "ERROR: No .app bundle found"; find "$RUNNER_TEMP" -name "*.app" | head -10; exit 1; }
-          brew install ldid 2>/dev/null || true
-          find "$APP" -type f \( -name "*.dylib" -o -perm +0111 \) | while read bin; do
-            ldid -S "$bin" 2>/dev/null || true
-          done
-          mkdir -p "$RUNNER_TEMP/ipa/Payload"
-          cp -r "$APP" "$RUNNER_TEMP/ipa/Payload/"
-          cd "$RUNNER_TEMP/ipa" && zip -r "$RUNNER_TEMP/SMSRadar.ipa" Payload
-          ls -lh "$RUNNER_TEMP/SMSRadar.ipa"
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: SMSRadar-IPA
-          path: ${{ runner.temp }}/SMSRadar.ipa
-          retention-days: 7
+          grep "error:" /tmp/xcodebuild.log | grep -v "^#" | head -60 || true
