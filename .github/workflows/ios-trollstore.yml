@@ -47,8 +47,6 @@ jobs:
           if [ -f "$SYS_UI" ]; then
             printf 'import ExpoModulesCore\n\npublic class ExpoSystemUIModule: Module {\n  public func definition() -> ModuleDefinition {\n    Name("ExpoSystemUI")\n  }\n}\n' > "$SYS_UI"
             echo "Patched ExpoSystemUIModule.swift"
-          else
-            echo "ExpoSystemUIModule.swift not found at $SYS_UI"
           fi
 
           LINK_DIR="$MOD/expo-linking/ios"
@@ -86,19 +84,6 @@ jobs:
       - name: Install CocoaPods
         run: cd mobile/ios && pod install --repo-update
 
-      - name: Bundle JS manually
-        run: |
-          cd mobile
-          mkdir -p ios/main.jsbundle
-          node_modules/.bin/react-native bundle \
-            --platform ios \
-            --dev false \
-            --entry-file node_modules/expo-router/entry.js \
-            --bundle-output ios/main.jsbundle \
-            --assets-dest ios \
-            2>&1 | tail -20
-        continue-on-error: true
-
       - name: Build iOS unsigned
         run: |
           WORKSPACE=$(find mobile/ios -maxdepth 1 -name "*.xcworkspace" -type d | head -1)
@@ -118,7 +103,6 @@ jobs:
             PROVISIONING_PROFILE="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             NODE_BINARY="$(which node)" \
-            SKIP_BUNDLING=YES \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             2>&1 | tee /tmp/xcodebuild.log
