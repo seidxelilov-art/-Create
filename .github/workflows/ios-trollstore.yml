@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
 
     steps:
       - name: Checkout
@@ -92,9 +92,9 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             NODE_BINARY="$(which node)" \
             SKIP_BUNDLING=YES \
-            SWIFT_VERSION=5 \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            CLANG_WARN_DOCUMENTATION_COMMENTS=NO \
             2>&1 | tee /tmp/xcodebuild.log
           BUILD_EXIT=${PIPESTATUS[0]}
           echo ""
