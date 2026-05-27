@@ -98,11 +98,14 @@ jobs:
           echo "=== xcodebuild exit code: $BUILD_EXIT ==="
           if [ "$BUILD_EXIT" -ne 0 ]; then
             echo ""
-            echo "====== ERRORS ======"
-            grep -E "^.*error:.*$" /tmp/xcodebuild.log | grep -v "^#" | head -50 || true
+            echo "====== SWIFT/CLANG ERRORS ======"
+            grep -E "\.(swift|m|mm|cpp):[0-9]+:[0-9]+: error:" /tmp/xcodebuild.log | head -60 || true
             echo ""
-            echo "====== LAST 60 LINES OF LOG ======"
-            tail -60 /tmp/xcodebuild.log
+            echo "====== ALL error: LINES ======"
+            grep -E "error:" /tmp/xcodebuild.log | grep -v "^#" | grep -v "note:" | head -60 || true
+            echo ""
+            echo "====== LAST 80 LINES OF LOG ======"
+            tail -80 /tmp/xcodebuild.log
           fi
           exit $BUILD_EXIT
 
