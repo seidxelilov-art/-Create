@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system";
+import { Platform } from "react-native";
 import React, {
   createContext,
   useCallback,
@@ -93,7 +95,6 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
-// Stable keys — never change these after first release
 const K = {
   cars: "@smsradar_cars",
   fines: "@smsradar_fines",
@@ -101,20 +102,20 @@ const K = {
   notifications: "@smsradar_notifs",
   profile: "@smsradar_profile",
   isAdmin: "@smsradar_isAdmin",
-  seeded: "@smsradar_seeded_v5", // bump version to force re-seed with updated fines
+  seeded: "@smsradar_seeded_v6",
 };
 
-// Legacy keys to migrate from
 const LEGACY_KEYS = [
   { from: "@smsradar_cars_v2", to: K.cars },
   { from: "@smsradar_cars_v3", to: K.cars },
   { from: "@smsradar_fines_v3", to: K.fines },
-  { from: "@smsradar_fines", to: null }, // already target
+  { from: "@smsradar_fines", to: null },
   { from: "@smsradar_payment_history_v3", to: K.paymentHistory },
   { from: "@smsradar_notifications_v3", to: K.notifications },
 ];
 
-const SAMPLE_CARS: Car[] = [
+// Sizin əsl maşınlarınız — həmişə burada olacaq, cərimələr boş başlayır
+const MY_CARS: Car[] = [
   {
     id: "car1",
     plate: "10AZ503",
@@ -143,275 +144,108 @@ const SAMPLE_CARS: Car[] = [
   },
 ];
 
-const SAMPLE_FINES: Fine[] = [
-  // ── 10AZ503 (car1) ──────────────────────────────────────────
-  {
-    id: "fine_az503_1",
-    carId: "car1",
-    protokol: "EQ36239077",
-    avtomobil: "10AZ503",
-    cerimelenan: "RİLEY COLE NATHANİEL",
-    cerime: 50,
-    endirim: 5,
-    status: "Qərarlı",
-    suretHeddi: 60,
-    asdiqinizSuret: 90,
-    qerarTarix: "21.05.2026",
-    tarix: "21.05.2026 20:24:42",
-    qeydAlınmaYeri:
-      "Səbail rayonu Salyan şossesi Bayraq Meydanının yaxınlığı Azneft meydanı ist2",
-    ixmNote:
-      "İXM:328.2. Yolda müəyyən edilmiş hərəkət sürətini 21-40 km/saat həddində aşmağa görə",
-  },
-  {
-    id: "fine_az503_2",
-    carId: "car1",
-    protokol: "EQ36238987",
-    avtomobil: "10AZ503",
-    cerimelenan: "RİLEY COLE NATHANİEL",
-    cerime: 50,
-    endirim: 5,
-    status: "Qərarlı",
-    suretHeddi: 60,
-    asdiqinizSuret: 81,
-    qerarTarix: "21.05.2026",
-    tarix: "21.05.2026 20:20:00",
-    qeydAlınmaYeri:
-      "Səbail rayonu Salyan şossesi Bibiheybət məscidinin yaxınlığı Bayraq Meydanı ist",
-    ixmNote:
-      "İXM:328.2. Yolda müəyyən edilmiş hərəkət sürətini 21-40 km/saat həddində aşmağa görə",
-  },
-  {
-    id: "fine_az503_3",
-    carId: "car1",
-    protokol: "EQ36232005",
-    avtomobil: "10AZ503",
-    cerimelenan: "RİLEY COLE NATHANİEL",
-    cerime: 50,
-    endirim: 5,
-    status: "Qərarlı",
-    suretHeddi: 60,
-    asdiqinizSuret: 84,
-    qerarTarix: "21.05.2026",
-    tarix: "21.05.2026 15:42:27",
-    qeydAlınmaYeri:
-      "Səbail rayonu Salyan şossesi Bayraq Meydanının yaxınlığı Bayıl ist1",
-    ixmNote:
-      "İXM:328.2. Yolda müəyyən edilmiş hərəkət sürətini 21-40 km/saat həddində aşmağa görə",
-  },
-  {
-    id: "fine_az503_4",
-    carId: "car1",
-    protokol: "EQ36203962",
-    avtomobil: "10AZ503",
-    cerimelenan: "RİLEY COLE NATHANİEL",
-    cerime: 40,
-    endirim: 4,
-    status: "Qərarlı",
-    suretHeddi: 0,
-    asdiqinizSuret: 0,
-    qerarTarix: "20.05.2026",
-    tarix: "19.05.2026 18:17:04",
-    qeydAlınmaYeri:
-      "Babək pr, Arzu şadlıq sarayının qarşısı mərkəz istiqaməti TŞ4-010",
-    ixmNote:
-      "İXM:329.1. Təhlükəsizlik kəmərini bağlamadan nəqliyyat vasitəsini idarə etməyə görə",
-  },
-  // ── 10AA134 (car2) ──────────────────────────────────────────
-  {
-    id: "fine_aa134_5",
-    carId: "car2",
-    protokol: "EQ28207494",
-    avtomobil: "10AA134",
-    cerimelenan: "ÖZDEMİR MEHMET .",
-    cerime: 100,
-    endirim: 10,
-    status: "2 bal",
-    suretHeddi: 0,
-    asdiqinizSuret: 0,
-    qerarTarix: "07.05.2026",
-    tarix: "07.05.2026 18:22:52",
-    qeydAlınmaYeri: "Neftçilər prospekti Dəniz vağzalının qarşısı",
-    ixmNote:
-      "İXM:327.1-1. 5.9, 5.10.1 – 5.10.3 nişanları ilə işarələnmiş, ümumi istifadədə olan nəqliyyat vasitələri üçün nəzərdə tutulmuş hərəkət zolağı olan yollarda hərəkət edən digər nəqliyyat vasitələrinin həmin zolaqda hərəkət etməsinə görə",
-  },
-  {
-    id: "fine_aa134_6",
-    carId: "car2",
-    protokol: "EQ30570401",
-    avtomobil: "10AA134",
-    cerimelenan: "ÖZDEMİR MEHMET .",
-    cerime: 100,
-    endirim: 10,
-    status: "2 bal",
-    suretHeddi: 0,
-    asdiqinizSuret: 0,
-    qerarTarix: "07.05.2026",
-    tarix: "07.05.2026 18:27:52",
-    qeydAlınmaYeri: "Y.Səfərov küçəsi",
-    ixmNote:
-      "İXM:327.1-1. 5.9, 5.10.1 – 5.10.3 nişanları ilə işarələnmiş, ümumi istifadədə olan nəqliyyat vasitələri üçün nəzərdə tutulmuş hərəkət zolağı olan yollarda hərəkət edən digər nəqliyyat vasitələrinin həmin zolaqda hərəkət etməsinə görə",
-  },
-  {
-    id: "fine_aa134_1",
-    carId: "car2",
-    protokol: "EQ36283718",
-    avtomobil: "10AA134",
-    cerimelenan: "ÖZDEMİR MEHMET .",
-    cerime: 10,
-    endirim: 1,
-    status: "Qərarlı",
-    suretHeddi: 90,
-    asdiqinizSuret: 104,
-    qerarTarix: "23.05.2026",
-    tarix: "23.05.2026 15:11:00",
-    qeydAlınmaYeri:
-      "Hava limanı yolu Komsomol körpüsü Hava Limanı ist 1",
-    ixmNote:
-      "İXM:328.1. Yolda müəyyən edilmiş hərəkət sürətini 10-20 km/saat həddində aşmağa görə",
-  },
-  {
-    id: "fine_aa134_2",
-    carId: "car2",
-    protokol: "EQ35955745",
-    avtomobil: "10AA134",
-    cerimelenan: "ÖZDEMİR MEHMET .",
-    cerime: 200,
-    endirim: 20,
-    status: "Qərarlı",
-    suretHeddi: 110,
-    asdiqinizSuret: 162,
-    qerarTarix: "10.05.2026",
-    tarix: "10.05.2026 09:39:50",
-    qeydAlınmaYeri: "",
-    ixmNote:
-      "İXM:328.3 - Yolda müəyyən edilmiş hərəkət sürətini 41-60 km/saat həddində aşmağa görə",
-  },
-  {
-    id: "fine_aa134_3",
-    carId: "car2",
-    protokol: "EQ35903807",
-    avtomobil: "10AA134",
-    cerimelenan: "ÖZDEMİR MEHMET .",
-    cerime: 100,
-    endirim: 10,
-    status: "Qərarlı",
-    suretHeddi: 0,
-    asdiqinizSuret: 0,
-    qerarTarix: "08.05.2026",
-    tarix: "07.05.2026 18:42:52",
-    qeydAlınmaYeri: "Yusif Səfərov küçəsi",
-    ixmNote:
-      "İXM:327.1-1. 5.9, 5.10.1 – 5.10.3 nişanları ilə işarələnmiş, ümumi istifadədə olan nəqliyyat vasitələri üçün nəzərdə tutulmuş hərəkət zolağı olan yollarda hərəkət edən digər nəqliyyat vasitələrinin həmin zolaqda hərəkət etməsinə görə",
-  },
-  {
-    id: "fine_aa134_4",
-    carId: "car2",
-    protokol: "EQ35880128",
-    avtomobil: "10AA134",
-    cerimelenan: "ÖZDEMİR MEHMET .",
-    cerime: 10,
-    endirim: 1,
-    status: "Qərarlı",
-    suretHeddi: 70,
-    asdiqinizSuret: 87,
-    qerarTarix: "07.05.2026",
-    tarix: "07.05.2026 12:17:23",
-    qeydAlınmaYeri: "Bakı-Qazax yolu 29.5-ci km Bakı ist",
-    ixmNote:
-      "İXM:328.1. Yolda müəyyən edilmiş hərəkət sürətini 10-20 km/saat həddində aşmağa görə",
-  },
-];
-
-const SAMPLE_PAYMENT_HISTORY: PaymentRecord[] = [
-  {
-    id: "paid1",
-    carId: "car1",
-    protokol: "EQ35708702",
-    avtomobil: "10AZ503",
-    cerimelenan: "RILEY COLE NATHANIEL",
-    cerime: 40,
-    endirim: 4,
-    status: "Ödənilib",
-    suretHeddi: 0,
-    asdiqinizSuret: 0,
-    qerarTarix: "29.04.2026",
-    tarix: "29.04.2026 09:18:51",
-    qeydAlınmaYeri:
-      "Metbuat pr. - Ebdulrehim bey Haqverdiyev kuch. kesishmesi",
-    ixmNote:
-      "İXM:327.1. yol nişanlarının tələblərinə riayət edilməməsi",
-    odenisTarixi: "2026-05-01 16:34:53",
-    total: 37.3,
-    maskedCard: "454667******7691",
-    qebzNomresi: "1992022415",
-  },
-  {
-    id: "paid2",
-    carId: "car1",
-    protokol: "EQ35330641",
-    avtomobil: "10AZ503",
-    cerimelenan: "RILEY COLE NATHANIEL",
-    cerime: 10,
-    endirim: 1,
-    status: "Ödənilib",
-    suretHeddi: 90,
-    asdiqinizSuret: 101,
-    qerarTarix: "13.04.2026",
-    tarix: "13.04.2026 08:30:00",
-    qeydAlınmaYeri: "Nizami küçəsi, 45",
-    ixmNote:
-      "İXM:328.1. Yolda müəyyən edilmiş hərəkət sürətini 10-20 km/saat həddində aşmağa görə",
-    odenisTarixi: "2026-04-15 11:22:30",
-    total: 10.3,
-    maskedCard: "454667******7691",
-    qebzNomresi: "1881033512",
-  },
-];
-
-const SAMPLE_NOTIFICATIONS: AppNotification[] = [
-  {
-    id: "notif1",
-    type: "cerime",
-    plate: "10AA134",
-    message:
-      "10AA134 nomreli avtomobil 10 azn cerime edilmisdir . Endirim: 1 AZN. Tarix: 23.05.2026 15:11,Madde: 328.1.. odeme linki: ",
-    link: "https://web.api.az/EQ36283718",
-    createdAt: "2026-05-23T16:11:00.000Z",
-    timeText: "16:11",
-  },
-  {
-    id: "notif2",
-    type: "cerime",
-    plate: "10AA134",
-    message:
-      "10AA134 nomreli avtomobil 200 azn cerime edilmisdir . Endirim: 20 AZN. Tarix: 20.05.2026 09:45,Madde: 328.2.. odeme linki: ",
-    link: "https://web.api.az/EQ35955745",
-    createdAt: "2026-05-20T10:00:00.000Z",
-    timeText: "10:00",
-  },
-  {
-    id: "notif3",
-    type: "cerime",
-    plate: "10AZ503",
-    message:
-      "10AZ503 nomreli avtomobil 40 azn cerime edilmisdir . Endirim: 4 AZN. Tarix: 29.04.2026 09:18,Madde: 327.1.. odeme linki: ",
-    link: "https://web.api.az/EQ35708702",
-    createdAt: "2026-04-29T09:18:00.000Z",
-    timeText: "09:18",
-  },
-];
-
 const genId = () =>
   Date.now().toString() + Math.random().toString(36).substr(2, 9);
 
-async function save(key: string, value: unknown) {
+const DEVICE_ID =
+  (process.env.EXPO_PUBLIC_REPL_ID ?? "smsradar_dev") + "_smsradar";
+
+const API_BASE = process.env.EXPO_PUBLIC_DOMAIN
+  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`
+  : null;
+
+interface ServerSnapshot {
+  cars?: Car[];
+  fines?: Fine[];
+  paymentHistory?: PaymentRecord[];
+  notifications?: AppNotification[];
+  profile?: UserProfile;
+  isAdmin?: boolean;
+}
+
+function fetchWithTimeout(url: string, options: RequestInit, ms: number) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+    clearTimeout(id)
+  );
+}
+
+async function loadFromServer(): Promise<ServerSnapshot | null> {
+  if (!API_BASE || Platform.OS === "web") return null;
   try {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
+    const res = await fetchWithTimeout(
+      `${API_BASE}/storage/${DEVICE_ID}`,
+      {},
+      5000
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    return (json.data as ServerSnapshot) ?? null;
+  } catch (_) {
+    return null;
+  }
+}
+
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleServerSync(snapshot: ServerSnapshot) {
+  if (!API_BASE || Platform.OS === "web") return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    fetchWithTimeout(
+      `${API_BASE}/storage/${DEVICE_ID}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(snapshot),
+      },
+      8000
+    ).catch(() => {});
+  }, 500);
+}
+
+const DATA_DIR = FileSystem.documentDirectory
+  ? FileSystem.documentDirectory + "smsradar_data/"
+  : null;
+
+function keyToFilename(key: string): string {
+  return key.replace(/[^a-z0-9_]/gi, "_") + ".json";
+}
+
+async function ensureDir() {
+  if (!DATA_DIR) return;
+  try {
+    const info = await FileSystem.getInfoAsync(DATA_DIR);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(DATA_DIR, { intermediates: true });
+    }
+  } catch (_) {}
+}
+
+async function save(key: string, value: unknown) {
+  const json = JSON.stringify(value);
+  if (DATA_DIR && Platform.OS !== "web") {
+    try {
+      await ensureDir();
+      await FileSystem.writeAsStringAsync(DATA_DIR + keyToFilename(key), json);
+    } catch (_) {}
+  }
+  try {
+    await AsyncStorage.setItem(key, json);
   } catch (_) {}
 }
 
 async function load<T>(key: string): Promise<T | null> {
+  if (DATA_DIR && Platform.OS !== "web") {
+    try {
+      const path = DATA_DIR + keyToFilename(key);
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists) {
+        const raw = await FileSystem.readAsStringAsync(path);
+        if (raw) return JSON.parse(raw) as T;
+      }
+    } catch (_) {}
+  }
   try {
     const raw = await AsyncStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : null;
@@ -435,11 +269,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        // Check if this is the first ever run (never seeded)
-        const seeded = await AsyncStorage.getItem(K.seeded);
+        const serverSnap = await loadFromServer();
+
+        const [c, f, p, n, pr, admin] = await Promise.all([
+          load<Car[]>(K.cars),
+          load<Fine[]>(K.fines),
+          load<PaymentRecord[]>(K.paymentHistory),
+          load<AppNotification[]>(K.notifications),
+          load<UserProfile>(K.profile),
+          load<boolean>(K.isAdmin),
+        ]);
+
+        const sc = (serverSnap?.cars?.length ?? 0) > 0 ? serverSnap!.cars! : c;
+        const sf = (serverSnap?.fines?.length ?? 0) > 0 ? serverSnap!.fines! : f;
+        const sp = (serverSnap?.paymentHistory?.length ?? 0) > 0 ? serverSnap!.paymentHistory! : p;
+        const sn = (serverSnap?.notifications?.length ?? 0) > 0 ? serverSnap!.notifications! : n;
+        const spr = serverSnap?.profile ?? pr;
+        const sadmin = serverSnap?.isAdmin ?? admin;
+
+        const seededFile = await load<string>(K.seeded);
+        const seededAsync = await AsyncStorage.getItem(K.seeded);
+        const seeded = seededFile || seededAsync || serverSnap !== null;
 
         if (!seeded) {
-          // First time: migrate any legacy data or seed with sample data
           const legacyCars = await (async () => {
             for (const { from, to } of LEGACY_KEYS) {
               if (!to || to !== K.cars) continue;
@@ -476,16 +328,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             return null;
           })();
 
-          const initCars = legacyCars ?? SAMPLE_CARS;
-          const initFines = legacyFines ?? SAMPLE_FINES;
-          const initPay = legacyPay ?? SAMPLE_PAYMENT_HISTORY;
-          const initNotifs = legacyNotifs ?? SAMPLE_NOTIFICATIONS;
+          const initCars = legacyCars ?? MY_CARS;
+          const initFines = legacyFines ?? [];
+          const initPay = legacyPay ?? [];
+          const initNotifs = legacyNotifs ?? [];
 
           await Promise.all([
             save(K.cars, initCars),
             save(K.fines, initFines),
             save(K.paymentHistory, initPay),
             save(K.notifications, initNotifs),
+            save(K.seeded, "1"),
             AsyncStorage.setItem(K.seeded, "1"),
           ]);
 
@@ -493,81 +346,120 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setFines(initFines);
           setPaymentHistory(initPay);
           setNotifications(initNotifs);
+
+          scheduleServerSync({
+            cars: initCars,
+            fines: initFines,
+            paymentHistory: initPay,
+            notifications: initNotifs,
+          });
         } else {
-          // Normal load — always read from stable keys
-          const [c, f, p, n, pr, admin] = await Promise.all([
-            load<Car[]>(K.cars),
-            load<Fine[]>(K.fines),
-            load<PaymentRecord[]>(K.paymentHistory),
-            load<AppNotification[]>(K.notifications),
-            load<UserProfile>(K.profile),
-            load<boolean>(K.isAdmin),
-          ]);
+          const effectiveCars = (sc && sc.length > 0) ? sc : (c && c.length > 0 ? c : MY_CARS);
+          const effectiveFines = (sf && sf.length > 0) ? sf : (f ?? []);
+          const effectivePay = (sp && sp.length > 0) ? sp : (p ?? []);
+          const effectiveNotifs = (sn && sn.length > 0) ? sn : (n ?? []);
 
-          // Always merge missing sample cars (by id)
-          const existingCars = c ?? SAMPLE_CARS;
-          const mergedCars = [...existingCars];
-          let carsMerged = false;
-          for (const sc of SAMPLE_CARS) {
-            if (!mergedCars.some((x) => x.id === sc.id)) {
-              mergedCars.push(sc);
-              carsMerged = true;
-            }
-          }
-          if (carsMerged) save(K.cars, mergedCars);
-          setCars(mergedCars);
+          save(K.cars, effectiveCars);
+          save(K.fines, effectiveFines);
+          save(K.paymentHistory, effectivePay);
+          save(K.notifications, effectiveNotifs);
+          save(K.seeded, "1");
+          AsyncStorage.setItem(K.seeded, "1");
 
-          // Always merge missing sample fines (by protokol) — preserves user photos
-          const existingFines = f ?? [];
-          const mergedFines = [...existingFines];
-          let finesMerged = false;
-          for (const sf of SAMPLE_FINES) {
-            if (!mergedFines.some((x) => x.protokol === sf.protokol)) {
-              mergedFines.push(sf);
-              finesMerged = true;
-            }
-          }
-          if (finesMerged) save(K.fines, mergedFines);
-          setFines(mergedFines);
-
-          setPaymentHistory(p ?? SAMPLE_PAYMENT_HISTORY);
-          setNotifications(n ?? SAMPLE_NOTIFICATIONS);
-          if (pr) setProfile(pr);
-          if (admin !== null) setIsAdminState(admin);
+          setCars(effectiveCars);
+          setFines(effectiveFines);
+          setPaymentHistory(effectivePay);
+          setNotifications(effectiveNotifs);
+          if (spr) setProfile(spr);
+          if (sadmin !== null) setIsAdminState(sadmin ?? false);
         }
-      } catch (_) {}
+      } catch (e) {
+        console.warn("[AppContext] init error:", e);
+      }
       setLoaded(true);
     })();
   }, []);
 
-  // Persist every change immediately
+  const carsRef = React.useRef(cars);
+  const finesRef = React.useRef(fines);
+  const payRef = React.useRef(paymentHistory);
+  const notifsRef = React.useRef(notifications);
+  const profileRef = React.useRef(profile);
+  const adminRef = React.useRef(isAdmin);
+
   useEffect(() => {
     if (!loaded) return;
+    carsRef.current = cars;
     save(K.cars, cars);
+    scheduleServerSync({
+      cars,
+      fines: finesRef.current,
+      paymentHistory: payRef.current,
+      notifications: notifsRef.current,
+      profile: profileRef.current,
+      isAdmin: adminRef.current,
+    });
   }, [cars, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
+    finesRef.current = fines;
     save(K.fines, fines);
+    scheduleServerSync({
+      cars: carsRef.current,
+      fines,
+      paymentHistory: payRef.current,
+      notifications: notifsRef.current,
+      profile: profileRef.current,
+      isAdmin: adminRef.current,
+    });
   }, [fines, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
+    payRef.current = paymentHistory;
     save(K.paymentHistory, paymentHistory);
+    scheduleServerSync({
+      cars: carsRef.current,
+      fines: finesRef.current,
+      paymentHistory,
+      notifications: notifsRef.current,
+      profile: profileRef.current,
+      isAdmin: adminRef.current,
+    });
   }, [paymentHistory, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
+    notifsRef.current = notifications;
     save(K.notifications, notifications);
+    scheduleServerSync({
+      cars: carsRef.current,
+      fines: finesRef.current,
+      paymentHistory: payRef.current,
+      notifications,
+      profile: profileRef.current,
+      isAdmin: adminRef.current,
+    });
   }, [notifications, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
+    profileRef.current = profile;
     save(K.profile, profile);
+    scheduleServerSync({
+      cars: carsRef.current,
+      fines: finesRef.current,
+      paymentHistory: payRef.current,
+      notifications: notifsRef.current,
+      profile,
+      isAdmin: adminRef.current,
+    });
   }, [profile, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
+    adminRef.current = isAdmin;
     save(K.isAdmin, isAdmin);
   }, [isAdmin, loaded]);
 
@@ -649,47 +541,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       total: number,
       qebzNomresi: string
     ) => {
-      setFines((prevFines) => {
-        const fine = prevFines.find((f) => f.id === fineId);
-        if (!fine) return prevFines;
+      const prevFines = finesRef.current;
+      const fine = prevFines.find((f) => f.id === fineId);
+      if (!fine) return;
 
-        const now = new Date();
-        const pad = (n: number) => String(n).padStart(2, "0");
-        const odenisTarixi = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const odenisTarixi = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 
-        const record: PaymentRecord = {
-          ...fine,
-          status: "Ödənilib",
-          odenisTarixi,
-          total,
-          maskedCard,
-          qebzNomresi,
-        };
+      const record: PaymentRecord = {
+        ...fine,
+        status: "Ödənilib",
+        odenisTarixi,
+        total,
+        maskedCard,
+        qebzNomresi,
+      };
 
-        const notif: AppNotification = {
-          id: genId(),
-          type: "odenis",
-          plate: fine.avtomobil,
-          message: `${fine.protokol} ödəndi. Məbləğ: ${total.toFixed(2)} AZN. Kart: ${maskedCard}`,
-          createdAt: now.toISOString(),
-          timeText: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-        };
+      const notif: AppNotification = {
+        id: genId(),
+        type: "odenis",
+        plate: fine.avtomobil,
+        message: `${fine.protokol} ödəndi. Məbləğ: ${total.toFixed(2)} AZN. Kart: ${maskedCard}`,
+        createdAt: now.toISOString(),
+        timeText: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+      };
 
-        setPaymentHistory((prev) => {
-          const next = [record, ...prev];
-          save(K.paymentHistory, next);
-          return next;
-        });
+      const nextFines = prevFines.filter((f) => f.id !== fineId);
+      save(K.fines, nextFines);
+      setFines(nextFines);
 
-        setNotifications((prev) => {
-          const next = [notif, ...prev];
-          save(K.notifications, next);
-          return next;
-        });
+      setPaymentHistory((prev) => {
+        const next = [record, ...prev];
+        save(K.paymentHistory, next);
+        return next;
+      });
 
-        const nextFines = prevFines.filter((f) => f.id !== fineId);
-        save(K.fines, nextFines);
-        return nextFines;
+      setNotifications((prev) => {
+        const next = [notif, ...prev];
+        save(K.notifications, next);
+        return next;
       });
     },
     []
