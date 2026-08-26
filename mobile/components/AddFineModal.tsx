@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Image,
   Modal,
   Platform,
@@ -42,11 +43,13 @@ function Field({
   multiline?: boolean;
 }) {
   const colors = useColors();
+
   return (
     <View style={fieldStyles.container}>
       <Text style={[fieldStyles.label, { color: colors.mutedForeground }]}>
         {label}
       </Text>
+
       <TextInput
         style={[
           fieldStyles.input,
@@ -71,7 +74,9 @@ function Field({
 }
 
 const fieldStyles = StyleSheet.create({
-  container: { marginBottom: 12 },
+  container: {
+    marginBottom: 12,
+  },
   label: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
@@ -145,37 +150,106 @@ export function AddFineModal({
     }
   }, [editFine, visible]);
 
-  const copyToPermanent = async (uri: string): Promise<string> => {
+  /*
+   * Şəkli telefonun qalereyasından tətbiqin öz daimi yaddaşına köçürür.
+   * Bundan sonra istifadəçi şəkli Photos/Gallery-dən silsə belə,
+   * tətbiqin içindəki kopya qalır.
+   */
+  const copyToPermanent = async (
+    uri: string
+  ): Promise<string | undefined> => {
     try {
-      if (Platform.OS === "web") return uri;
-      const dir = FileSystem.documentDirectory + "fine_images/";
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      const ext = uri.split(".").pop()?.split("?")[0] ?? "jpg";
-      const dest = dir + Date.now() + "_" + Math.random().toString(36).slice(2) + "." + ext;
-      await FileSystem.copyAsync({ from: uri, to: dest });
-      return dest;
+      if (Platform.OS === "web") {
+        return uri;
+      }
+
+      const documentDirectory = FileSystem.documentDirectory;
+
+      if (!documentDirectory) {
+        return undefined;
+      }
+
+      const directory = documentDirectory + "smsradar_fine_images/";
+
+      await FileSystem.makeDirectoryAsync(directory, {
+        intermediates: true,
+      });
+
+      const extension =
+        uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+
+      const safeExtension =
+        extension.length <= 5 ? extension : "jpg";
+
+      const destination =
+        directory +
+        "fine_" +
+        Date.now() +
+        "_" +
+        Math.random().toString(36).slice(2) +
+        "." +
+        safeExtension;
+
+      await FileSystem.copyAsync({
+        from: uri,
+        to: destination,
+      });
+
+      const savedFile = await FileSystem.getInfoAsync(destination);
+
+      if (!savedFile.exists) {
+        return undefined;
+      }
+
+      return destination;
     } catch {
-      return uri;
+      return undefined;
     }
   };
 
   const pickMedia = async (slot: 1 | 2) => {
-    const { status: perm } =
+    const permission =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm !== "granted") return;
+
+    if (permission.status !== "granted") {
+      Alert.alert(
+        "İcazə lazımdır",
+        "Şəkil seçmək üçün qalereyaya icazə verməlisiniz."
+      );
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.8,
     });
-    if (!result.canceled && result.assets[0]) {
-      const permanent = await copyToPermanent(result.assets[0].uri);
-      if (slot === 1) setMediaUri(permanent);
-      else setMediaUri2(permanent);
+
+    if (result.canceled || !result.assets[0]) {
+      return;
+    }
+
+    const permanentUri = await copyToPermanent(result.assets[0].uri);
+
+    if (!permanentUri) {
+      Alert.alert(
+        "Şəkil yadda saxlanmadı",
+        "Şəkli tətbiqin yaddaşına köçürmək mümkün olmadı. Zəhmət olmasa yenidən yoxlayın."
+      );
+      return;
+    }
+
+    if (slot === 1) {
+      setMediaUri(permanentUri);
+    } else {
+      setMediaUri2(permanentUri);
     }
   };
 
   const handleSave = () => {
-    if (!protokol.trim()) return;
+    if (!protokol.trim()) {
+      return;
+    }
+
     const fineData = {
       carId,
       protokol: protokol.trim(),
@@ -194,12 +268,16 @@ export function AddFineModal({
       mediaUri2,
     };
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Haptics.notificationAsync(
+      Haptics.NotificationFeedbackType.Success
+    );
+
     if (editFine) {
       updateFine(editFine.id, fineData);
     } else {
       addFine(fineData);
     }
+
     onClose();
   };
 
@@ -221,12 +299,33 @@ export function AddFineModal({
           ]}
         >
           <View style={styles.sheetHeader}>
-            <View style={[styles.handle, { backgroundColor: colors.border }]} />
-            <Text style={[styles.title, { color: colors.foreground }]}>
-              {editFine ? "Cərimi redaktə et" : "Yeni cərimə əlavə et"}
+            <View
+              style={[
+                styles.handle,
+                { backgroundColor: colors.border },
+              ]}
+            />
+
+            <Text
+              style={[
+                styles.title,
+                { color: colors.foreground },
+              ]}
+            >
+              {editFine
+                ? "Cəriməni redaktə et"
+                : "Yeni cərimə əlavə et"}
             </Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color={colors.mutedForeground} />
+
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.closeBtn}
+            >
+              <Ionicons
+                name="close"
+                size={22}
+                color={colors.mutedForeground}
+              />
             </TouchableOpacity>
           </View>
 
@@ -235,34 +334,119 @@ export function AddFineModal({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <Field label="Protokol" value={protokol} onChangeText={setProtokol} />
-            <Field label="Cərimə olunan" value={cerimelenan} onChangeText={setCerimelenan} />
-            <Field label="Cərimə (AZN)" value={cerime} onChangeText={setCerime} keyboardType="numeric" />
-            <Field label="Endirim (AZN)" value={endirim} onChangeText={setEndirim} keyboardType="numeric" />
-            <Field label="Status" value={status} onChangeText={setStatus} />
-            <Field label="Sürət həddi (km/saat)" value={suretHeddi} onChangeText={setSuretHeddi} keyboardType="numeric" />
-            <Field label="Aşdığınız sürət (km/saat)" value={asdiqinizSuret} onChangeText={setAsdiqinizSuret} keyboardType="numeric" />
-            <Field label="Qərar tarixi" value={qerarTarix} onChangeText={setQerarTarix} placeholder="DD.MM.YYYY" />
-            <Field label="Tarix" value={tarix} onChangeText={setTarix} placeholder="DD.MM.YYYY HH:mm" />
-            <Field label="Qeydə alınma yeri" value={qeydAlınmaYeri} onChangeText={setQeydAlınmaYeri} multiline />
-            <Field label="İXM qeydi" value={ixmNote} onChangeText={setIxmNote} multiline />
+            <Field
+              label="Protokol"
+              value={protokol}
+              onChangeText={setProtokol}
+            />
+
+            <Field
+              label="Cərimə olunan"
+              value={cerimelenan}
+              onChangeText={setCerimelenan}
+            />
+
+            <Field
+              label="Cərimə (AZN)"
+              value={cerime}
+              onChangeText={setCerime}
+              keyboardType="numeric"
+            />
+
+            <Field
+              label="Endirim (AZN)"
+              value={endirim}
+              onChangeText={setEndirim}
+              keyboardType="numeric"
+            />
+
+            <Field
+              label="Status"
+              value={status}
+              onChangeText={setStatus}
+            />
+
+            <Field
+              label="Sürət həddi (km/saat)"
+              value={suretHeddi}
+              onChangeText={setSuretHeddi}
+              keyboardType="numeric"
+            />
+
+            <Field
+              label="Aşdığınız sürət (km/saat)"
+              value={asdiqinizSuret}
+              onChangeText={setAsdiqinizSuret}
+              keyboardType="numeric"
+            />
+
+            <Field
+              label="Qərar tarixi"
+              value={qerarTarix}
+              onChangeText={setQerarTarix}
+              placeholder="DD.MM.YYYY"
+            />
+
+            <Field
+              label="Tarix"
+              value={tarix}
+              onChangeText={setTarix}
+              placeholder="DD.MM.YYYY HH:mm"
+            />
+
+            <Field
+              label="Qeydə alınma yeri"
+              value={qeydAlınmaYeri}
+              onChangeText={setQeydAlınmaYeri}
+              multiline
+            />
+
+            <Field
+              label="İXM qeydi"
+              value={ixmNote}
+              onChangeText={setIxmNote}
+              multiline
+            />
 
             <View style={styles.mediaRow}>
               {([1, 2] as const).map((slot) => {
-                const uri = slot === 1 ? mediaUri : mediaUri2;
+                const uri =
+                  slot === 1 ? mediaUri : mediaUri2;
+
                 return (
                   <TouchableOpacity
                     key={slot}
-                    style={[styles.mediaPickBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+                    style={[
+                      styles.mediaPickBtn,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: colors.card,
+                      },
+                    ]}
                     onPress={() => pickMedia(slot)}
                     activeOpacity={0.8}
                   >
                     {uri ? (
-                      <Image source={{ uri }} style={styles.mediaPreview} />
+                      <Image
+                        source={{ uri }}
+                        style={styles.mediaPreview}
+                      />
                     ) : (
                       <>
-                        <Ionicons name="image-outline" size={22} color={colors.mutedForeground} />
-                        <Text style={[styles.mediaPickText, { color: colors.mutedForeground }]}>
+                        <Ionicons
+                          name="image-outline"
+                          size={22}
+                          color={colors.mutedForeground}
+                        />
+
+                        <Text
+                          style={[
+                            styles.mediaPickText,
+                            {
+                              color: colors.mutedForeground,
+                            },
+                          ]}
+                        >
                           Şəkil {slot}
                         </Text>
                       </>
@@ -273,11 +457,19 @@ export function AddFineModal({
             </View>
 
             <TouchableOpacity
-              style={[styles.saveBtn, { backgroundColor: colors.primary }]}
+              style={[
+                styles.saveBtn,
+                { backgroundColor: colors.primary },
+              ]}
               onPress={handleSave}
               activeOpacity={0.85}
             >
-              <Text style={[styles.saveBtnText, { color: colors.primaryForeground }]}>
+              <Text
+                style={[
+                  styles.saveBtnText,
+                  { color: colors.primaryForeground },
+                ]}
+              >
                 {editFine ? "Yenilə" : "Əlavə et"}
               </Text>
             </TouchableOpacity>
